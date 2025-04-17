@@ -1,0 +1,390 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Network Topology</title>
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+</head>
+<body>
+    <div>
+        <label for="topology-type">Select Topology Type:</label>
+        <select id="topology-type">
+            <option value="star">Star</option>
+            <option value="bus">Bus</option>
+            <option value="ring">Ring</option>
+        </select>
+        <button id="generate-topology">Generate Topology</button>
+        <button id="add-new-topology">Add New Topology</button>
+    </div>
+    <div>
+        <label for="topology-selector">Saved Topologies:</label>
+        <select id="topology-selector"></select>
+        <button id="load-topology">Load Topology</button>
+    </div>
+    <div>
+        <label for="device-type">Device Type:</label>
+        <select id="device-type">
+            <option value="router">Router</option>
+            <option value="switch">Switch</option>
+            <option value="computer">Computer</option>
+        </select>
+        <input type="text" id="image-path" placeholder="Device Image URL" />
+        <button id="add-device">Add Device</button>
+    </div>
+    <div>
+        <h3>Device Details</h3>
+        <input type="text" id="device-mac" placeholder="MAC Address" />
+        <input type="text" id="device-ip" placeholder="IP Address" />
+        <input type="text" id="device-interface" placeholder="Interface" />
+        <input type="text" id="device-os" placeholder="Operating System" />
+        <input type="text" id="device-status" placeholder="Status" />
+        <input type="text" id="device-protocol" placeholder="Protocol" />
+        <button id="save-device-details">Save Device Details</button>
+    </div>
+    <div>
+        <h3>Saved Devices</h3>
+        <select id="device-selector"></select>
+        <button id="view-device-details">View Details</button>
+    </div>
+    <svg width="800" height="600" style="border: 1px solid black;"></svg>
+    <div id="device-details-display"></div>
+</body>
+<script>
+    // Device and topology storage
+    const nodes = [];
+    const links = [];
+    const topologies = {};
+
+    // Define data containers
+let nodes = [];
+let links = [];
+
+// D3 SVG Setup
+const svg = d3.select("svg");
+const width = +svg.attr("width") || 800;
+const height = +svg.attr("height") || 600;
+
+// Force simulation for layout
+const simulation = d3.forceSimulation()
+    .force("link", d3.forceLink().id(d => d.id).distance(150))
+    .force("charge", d3.forceManyBody().strength(-300))
+    .force("center", d3.forceCenter(width / 2, height / 2));
+
+// Function to render the network
+function updateTopology() {
+    // Remove old elements
+    svg.selectAll("*").remove();
+
+    // Set node positions based on topology
+    setNodePositions();
+
+    // Add links
+    const link = svg.append("g")
+        .selectAll("line")
+        .data(links)
+        .enter()
+        .append("line")
+        .attr("stroke", "#999")
+        .attr("stroke-width", 2);
+
+    // Add nodes
+    const node = svg.append("g")
+        .selectAll("image")
+        .data(nodes)
+        .enter()
+        .append("image")
+        .attr("xlink:href", d => d.image)
+        .attr("width", 40)
+        .attr("height", 40)
+        .attr("x", d => d.x || width / 2)
+        .attr("y", d => d.y || height / 2)
+        .call(drag(simulation));
+
+    // Add labels
+    svg.append("g")
+        .selectAll("text")
+        .data(nodes)
+        .enter()
+        .append("text")
+        .attr("x", d => d.x || width / 2 + 20)
+        .attr("y", d => d.y || height / 2 - 10)
+        .text(d => d.id)
+        .attr("font-size", "10px")
+        .attr("text-anchor", "middle");
+
+    // Update simulation
+    simulation.nodes(nodes).on("tick", () => {
+        link
+            .attr("x1", d => d.source.x)
+            .attr("y1", d => d.source.y)
+            .attr("x2", d => d.target.x)
+            .attr("y2", d => d.target.y);
+
+        node
+            .attr("x", d => d.x - 20)
+            .attr("y", d => d.y - 20);
+    });
+
+    simulation.force("link").links(links);
+    simulation.alpha(1).restart();
+}
+
+// Set positions of nodes based on topology type
+function setNodePositions() {
+    const topologyType = document.getElementById("topology-type").value;
+    const radius = 200; // Radius for circular arrangement
+
+    // Get devices based on type
+    const routers = nodes.filter(n => n.id.startsWith("router"));
+    const switches = nodes.filter(n => n.id.startsWith("switch"));
+    const computers = nodes.filter(n => n.id.startsWith("computer"));
+
+    if (topologyType === "star") {
+        // Central router (first one) in the middle
+        if (routers.length > 0) {
+            routers[0].x = width / 2;
+            routers[0].y = height / 2;
+        }
+
+        // Position other devices around the central router
+        const angleIncrement = (2 * Math.PI) / (routers.length + switches.length + computers.length);
+        let angle = 0;
+
+        routers.slice(1).forEach((router, i) => {
+            router.x = width / 2 + radius * Math.cos(angle);
+            router.y = height / 2 + radius * Math.sin(angle);
+            angle += angleIncrement;
+        });
+
+        switches.forEach((sw) => {
+            sw.x = width / 2 + radius * Math.cos(angle);
+            sw.y = height / 2 + radius * Math.sin(angle);
+            angle += angleIncrement;
+        });
+
+        computers.forEach((comp) => {
+            comp.x = width / 2 + radius * Math.cos(angle);
+            comp.y = height / 2 + radius * Math.sin(angle);
+            angle += angleIncrement;
+        });
+    } else if (topologyType === "bus") {
+        // Arrange devices in a line (left to right)
+        const startX = width / 4; // Start position of the first device
+        const spacing = 100; // Space between devices
+
+        routers.forEach((router, i) => {
+            router.x = startX + i * spacing;
+            router.y = height / 2;
+        });
+
+        switches.forEach((sw, i) => {
+            sw.x = startX + (routers.length + i) * spacing;
+            sw.y = height / 2;
+        });
+
+        computers.forEach((comp, i) => {
+            comp.x = startX + (routers.length + switches.length + i) * spacing;
+            comp.y = height / 2;
+        });
+    } else if (topologyType === "ring") {
+        // Arrange devices in a circular pattern
+        const totalDevices = routers.length + switches.length + computers.length;
+        const angleIncrement = (2 * Math.PI) / totalDevices;
+        let angle = 0;
+
+        routers.forEach((router) => {
+            router.x = width / 2 + radius * Math.cos(angle);
+            router.y = height / 2 + radius * Math.sin(angle);
+            angle += angleIncrement;
+        });
+
+        switches.forEach((sw) => {
+            sw.x = width / 2 + radius * Math.cos(angle);
+            sw.y = height / 2 + radius * Math.sin(angle);
+            angle += angleIncrement;
+        });
+
+        computers.forEach((comp) => {
+            comp.x = width / 2 + radius * Math.cos(angle);
+            comp.y = height / 2 + radius * Math.sin(angle);
+            angle += angleIncrement;
+        });
+    }
+}
+
+// Dragging functionality
+function drag(simulation) {
+    return d3.drag()
+        .on("start", event => {
+            if (!event.active) simulation.alphaTarget(0.3).restart();
+            event.subject.fx = event.subject.x;
+            event.subject.fy = event.subject.y;
+        })
+        .on("drag", event => {
+            event.subject.fx = event.x;
+            event.subject.fy = event.y;
+        })
+        .on("end", event => {
+            if (!event.active) simulation.alphaTarget(0);
+            event.subject.fx = null;
+            event.subject.fy = null;
+        });
+}
+
+// Add a device
+document.getElementById("add-device").addEventListener("click", () => {
+    const deviceType = document.getElementById("device-type").value;
+    const imagePath = document.getElementById("image-path").value || "default.png";
+
+    const newNode = {
+        id: `${deviceType}_${nodes.filter(n => n.id.startsWith(deviceType)).length + 1}`,
+        image: imagePath
+    };
+
+    nodes.push(newNode);
+    updateTopology();
+});
+
+// Generate and set topology
+document.getElementById("generate-topology").addEventListener("click", () => {
+    const topologyType = document.getElementById("topology-type").value;
+
+    links = []; // Clear existing links
+
+    // Topology rules implementation
+    const routers = nodes.filter(n => n.id.startsWith("router"));
+    const switches = nodes.filter(n => n.id.startsWith("switch"));
+    const computers = nodes.filter(n => n.id.startsWith("computer"));
+
+    if (topologyType === "star") {
+        // Connect all routers to the first router
+        routers.forEach((router, i) => {
+            if (i > 0) {
+                links.push({ source: routers[0].id, target: router.id });
+            }
+        });
+
+        // Connect switches to respective routers
+        switches.forEach((sw, i) => {
+            const router = routers[i % routers.length];
+            links.push({ source: router.id, target: sw.id });
+        });
+
+        // Connect computers to respective switches
+        computers.forEach((comp, i) => {
+            const sw = switches[i % switches.length];
+            links.push({ source: sw.id, target: comp.id });
+        });
+    } else if (topologyType === "bus") {
+        // Connect routers linearly
+        routers.forEach((router, i) => {
+            if (i > 0) {
+                links.push({ source: routers[i - 1].id, target: router.id });
+            }
+        });
+
+        // Connect switches to respective routers
+        switches.forEach((sw, i) => {
+            const router = routers[i % routers.length];
+            links.push({ source: router.id, target: sw.id });
+        });
+
+        // Connect computers to respective switches
+        computers.forEach((comp, i) => {
+            const sw = switches[i % switches.length];
+            links.push({ source: sw.id, target: comp.id });
+        });
+    } else if (topologyType === "ring") {
+        // Connect routers in a ring
+        routers.forEach((router, i) => {
+            links.push({ source: router.id, target: routers[(i + 1) % routers.length].id });
+        });
+
+        // Connect switches to respective routers
+        switches.forEach((sw, i) => {
+            const router = routers[i % routers.length];
+            links.push({ source: router.id, target: sw.id });
+        });
+
+        // Connect computers to respective switches
+        computers.forEach((comp, i) => {
+            const sw = switches[i % switches.length];
+            links.push({ source: sw.id, target: comp.id });
+        });
+    }
+
+    updateTopology();
+});
+
+
+    // Load Topology
+    document.getElementById("load-topology").addEventListener("click", () => {
+        const selectedTopology = document.getElementById("topology-selector").value;
+        if (selectedTopology && topologies[selectedTopology]) {
+            const { devices, connections } = topologies[selectedTopology];
+            nodes.splice(0, nodes.length, ...devices);
+            links.splice(0, links.length, ...connections);
+            updateTopology();
+        }
+    });
+
+    // Save Topology
+    document.getElementById("generate-topology").addEventListener("click", () => {
+        const topologyName = `topology_${Object.keys(topologies).length + 1}`;
+        topologies[topologyName] = { devices: [...nodes], connections: [...links] };
+        const selector = document.getElementById("topology-selector");
+        const option = document.createElement("option");
+        option.value = topologyName;
+        option.textContent = topologyName;
+        selector.appendChild(option);
+        alert(`Topology saved as ${topologyName}`);
+    });
+
+    // Add Device Details
+    document.getElementById("save-device-details").addEventListener("click", () => {
+        const deviceType = document.getElementById("device-type").value;
+        const deviceMAC = document.getElementById("device-mac").value;
+        const deviceIP = document.getElementById("device-ip").value;
+        const deviceInterface = document.getElementById("device-interface").value;
+        const deviceOS = document.getElementById("device-os").value;
+        const deviceStatus = document.getElementById("device-status").value;
+        const deviceProtocol = document.getElementById("device-protocol").value;
+
+        const device = nodes.find(n => n.id.startsWith(deviceType) && !n.details);
+        if (device) {
+            device.details = { MAC: deviceMAC, IP: deviceIP, Interface: deviceInterface, OS: deviceOS, Status: deviceStatus, Protocol: deviceProtocol };
+            const selector = document.getElementById("device-selector");
+            const option = document.createElement("option");
+            option.value = device.id;
+            option.textContent = device.id;
+            selector.appendChild(option);
+            alert("Device details saved.");
+        } else {
+            alert("Add the device first before saving details.");
+        }
+    });
+
+    // View Device Details
+    document.getElementById("view-device-details").addEventListener("click", () => {
+        const selectedDevice = document.getElementById("device-selector").value;
+        const device = nodes.find(n => n.id === selectedDevice);
+        if (device && device.details) {
+            document.getElementById("device-details-display").textContent = JSON.stringify(device.details, null, 2);
+        } else {
+            alert("Device details not available.");
+        }
+    });
+
+    // Add New Topology
+    document.getElementById("add-new-topology").addEventListener("click", () => {
+        nodes.splice(0, nodes.length);
+        links.splice(0, links.length);
+        updateTopology();
+        alert("Create your new topology.");
+    });
+
+    // Update Topology (Existing Function)
+
+</script>
+</html>
